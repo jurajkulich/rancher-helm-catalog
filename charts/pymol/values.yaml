@@ -1,0 +1,7 @@
+dnstarget: k8s-public-u.cerit-sc.cz
+mincpu: 1
+maxcpu: 4
+minram: 4096Mi
+maxram: 16384Mi
+defhostname: true
+persistenthome: true
