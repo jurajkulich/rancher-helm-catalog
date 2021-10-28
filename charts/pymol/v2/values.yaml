@@ -27,6 +27,9 @@ ingress:
       hosts:
         - some.domain.io
 
+serviceAccount:
+  create: false
+
 mincpu: 1
 maxcpu: 4
 minram: 4096Mi
