@@ -1,16 +1,17 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: {{ include "v2.fullname" . }}
+  name: {{ .Release.Name }}
   labels:
-    {{- include "v2.labels" . | nindent 4 }}
+    {{ .Release.Name }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "v2.selectorLabels" . | nindent 6 }}
+      app: {{ .Release.Name }}
+  serviceName: {{ .Release.Name }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -18,44 +19,240 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "v2.selectorLabels" . | nindent 8 }}
+        app: {{ .Release.Name }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "v2.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+{{/*      {{- with .Values.imagePullSecrets }}*/}}
+{{/*      imagePullSecrets:*/}}
+{{/*        {{- toYaml . | nindent 8 }}*/}}
+{{/*      {{- end }}*/}}
+{{/*      serviceAccountName: {{ include "v2.serviceAccountName" . }}*/}}
+{{/*      securityContext:*/}}
+{{/*        {{- toYaml .Values.podSecurityContext | nindent 8 }}*/}}
+      volumes:
+        ###
+        # shared x11 socket volume
+        ###
+        - name: x11
+          emptyDir:
+            medium: Memory
+            sizeLimit: 10Mi
+        ###
+        # Shared config volume
+        ###
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 10Mi
+        ###
+        # shared memory mount
+        # used to bypass default container runtime of 64MB
+        ###
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+
+      {{- if .Values.persistenthome }}
+      initContainers:
+        - name: init-desktop
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ['cp', '-rn', '/home/user/.', '/home/user2']
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: home
+              mountPath: /home/user2
+      {{- else }}
+      initContainers: []
+      {{- end }}
+
+      containers:
+        - name: xserver
+          image: cerit.io/xserver:v0.3
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: all
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          volumeMounts:
+            - name: x11
+              mountPath: /tmp/.X11-unix
+            - name: config
+              mountPath: /var/run/appconfig
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", "kill $(pidof Xorg tail bash)"]
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 8192Mi
+              cerit.io/gpu-mem: 1
+
+        - name: pymol
+          image: {{ .Values.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          env:
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: all
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: PULSE_SERVER
+              value: "127.0.0.1:4713"
+            - name: RESOLUTION
+              value: {{ .Values.resolution }}
+          volumeMounts:
+            - name: x11
+              mountPath: /tmp/.X11-unix
+            - name: config
+              mountPath: /var/run/appconfig
+            - name: dshm
+              mountPath: /dev/shm
+            {{- if .Values.persistenthome }}
+            - name: home
+              mountPath: /home/user
+          {{- end }}
+          resources:
+            limits:
+              cpu: {{ .Values.maxcpu }}
+              memory: {{ .Values.maxram }}
+            requests:
+              cpu: {{ .Values.mincpu }}
+              memory: {{ .Values.minram }}
+
+        - name: pulseaudio
+          image: cerit.io/pulseaudio:v0.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
           ports:
-            - name: http
-              containerPort: 80
+            - name: pulseaudio
+              containerPort: 4713
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+
+        - name: signalling
+          image: cerit.io/signalling:v0.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          ports:
+            - name: signalling
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: signalling
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+
+        - name: watchdog
+          image: cerit.io/webrtc-app:1.19.1-mtufix-nv
+          imagePullPolicy: Always
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          command: ["/bin/bash"]
+          args:
+            - -ec
+            - |
+              echo "Waiting for host X server at ${DISPLAY}"
+              until [[ -e /var/run/appconfig/xserver_ready ]]; do sleep 1; done
+              echo "Host X server is ready"
+              exec /usr/bin/python3 /opt/app/xserver_watchdog.py --on_timeout=/opt/app/watchdog.sh
+          env: []
+          volumeMounts:
+            - name: x11
+              mountPath: /tmp/.X11-unix
+            - name: config
+              mountPath: /var/run/appconfig
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+
+        - name: webrtc
+          image: cerit.io/webrtc-app:1.19.1-mtufix-nv
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: false
+            runAsUser: 1000
+            runAsGroup: 1000
+          # tty required to gather gpu stats using nvidia-smi and GPUtil python module.
+          tty: true
+          env:
+            - name: GST_DEBUG
+              value: "*:2"
+            - name: GST_PLUGIN_PATH
+              value: "/usr/lib/gstreamer-1.0"
+            - name: DISPLAY
+              value: ":0"
+            - name: "PULSE_SERVER"
+              value: "127.0.0.1:4713"
+            - name: SIGNALLING_SERVER
+              value: "ws://127.0.0.1:8080"
+            - name: COTURN_WEB_URI
+              value: "http://turnapi.turnapi.svc.cluster.local/"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: all
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+          volumeMounts:
+            - name: x11
+              mountPath: /tmp/.X11-unix
+            - name: config
+              mountPath: /var/run/appconfig
+          resources:
+            limits:
+              cpu: 1500m
+              memory: 8192Mi
+
+        - name: web
+          image: cerit.io/webrtc-web:v0.4
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          env:
+            - name: TURNHOST
+              value: turnapi.turnapi.svc.cluster.local
+          ports:
+            - name: web
+              containerPort: 8090
           readinessProbe:
             httpGet:
               path: /
-              port: http
+              port: web
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+            limits:
+              cpu: 500m
+              memory: 512Mi
+  {{- if .Values.persistenthome }}
+  volumeClaimTemplates:
+    - metadata:
+        name: home
+      spec:
+        accessModes: [ "ReadWriteMany" ]
+        storageClassName: "nfs-csi"
+        resources:
+          requests:
+            storage: 1Gi
+  {{ end }}

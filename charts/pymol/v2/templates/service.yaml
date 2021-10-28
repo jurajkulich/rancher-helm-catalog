@@ -2,13 +2,11 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ .Release.Name }}
-  labels:
-    {{ .Release.Name }}
+  labels: {{ .Release.Name }}
 spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: 8080
-      name: pymol
-  selector:
-    {{ .Release.Name }}
+      targetPort: {{ .Values.service.targetPort }}
+      name: {{ .Values.service.name }}
+  selector: {{ .Release.Name }}
