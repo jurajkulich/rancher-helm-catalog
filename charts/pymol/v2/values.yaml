@@ -1,4 +1,3 @@
-desktop: "cerit.io/desktopxfce:v0.1"
 mincpu: 1
 maxcpu: 4
 minram: 4096Mi
@@ -21,7 +20,6 @@ service:
   targetPort: 8090
 
 ingress:
-  a: 1
   enabled: true
   annotations:
     kubernetes.io/ingress.class: nginx
