@@ -1,3 +1,7 @@
+image:
+  repository: registry.gitlab.ics.muni.cz:443/493101/rancher-docker-catalog/pymol
+  tag: latest
+
 mincpu: 1
 maxcpu: 4
 minram: 4096Mi
@@ -9,9 +13,6 @@ username: ""
 password: ""
 persistenthome: true
 resolution: "1920x1080"
-image:
-  repository: registry.gitlab.ics.muni.cz:443/493101/rancher-docker-catalog/pymol
-  tag: latest
 
 service:
   type: ClusterIP
@@ -25,7 +26,7 @@ ingress:
     kubernetes.io/ingress.class: nginx
     kubernetes.io/tls-acme: "true"
     cert-manager.io/cluster-issuer: "letsencrypt-prod"
-    external-dns.alpha.kubernetes.io/target: { { .Values.dnstarget } }
+    external-dns.alpha.kubernetes.io/target: {{ .Values.dnstarget }}
     nginx.ingress.kubernetes.io/auth-type: basic
     nginx.ingress.kubernetes.io/auth-secret: desktoppassword
     nginx.ingress.kubernetes.io/auth-realm: "Use 'desktop' username and chosen password"
