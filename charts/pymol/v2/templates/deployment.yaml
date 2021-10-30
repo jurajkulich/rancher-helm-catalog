@@ -95,7 +95,7 @@ spec:
               cerit.io/gpu-mem: 1
 
         - name: pymol
-          image: {{ .Values.image }}
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: false
