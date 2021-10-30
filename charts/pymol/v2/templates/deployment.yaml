@@ -1,17 +1,17 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ .Release.Name }}
+  name: pymol-app
   labels:
-    app: {{ .Release.Name }}
+    app: pymol-app
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      app: {{ .Release.Name }}
-  serviceName: {{ .Release.Name }}
+      app: pymol-app
+  serviceName: pymol-app
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -19,7 +19,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        app: {{ .Release.Name }}
+        app: pymol-app
     spec:
 {{/*      {{- with .Values.imagePullSecrets }}*/}}
 {{/*      imagePullSecrets:*/}}
