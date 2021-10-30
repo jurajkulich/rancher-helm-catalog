@@ -29,6 +29,7 @@ ingress:
 
 serviceAccount:
   create: false
+  annotations: []
 
 mincpu: 1
 maxcpu: 4
