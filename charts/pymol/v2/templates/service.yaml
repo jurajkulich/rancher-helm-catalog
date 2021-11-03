@@ -10,5 +10,8 @@ spec:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
       name: {{ .Values.service.name }}
+    - port: 8080
+      name: signalling
+      targetPort: 8080
   selector:
     app: pymol-app
